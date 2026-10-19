@@ -1,0 +1,1125 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>AI 데이터셋 구축 업무량 기입 시스템 (월차·근태 연동)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet" />
+  <style>
+    @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+    body {
+      font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      background-color: #f3f4f6;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .card-shadow { box-shadow: 0 8px 30px rgba(0, 0, 0, 0.06); }
+    .tab-active { background-color: #4f46e5; color: #ffffff; font-weight: 700; }
+    .tab-inactive { background-color: #ffffff; color: #475569; font-weight: 500; }
+    /* 모바일에서 input 터치 시 화면 자동 줌인 방지 */
+    input, select, button { font-size: 16px !important; }
+    @keyframes fadeInOut {
+      0% { opacity: 0; transform: translateY(10px); }
+      15% { opacity: 1; transform: translateY(0); }
+      85% { opacity: 1; transform: translateY(0); }
+      100% { opacity: 0; transform: translateY(-10px); }
+    }
+    .toast-anim { animation: fadeInOut 2.5s ease-in-out forwards; }
+  </style>
+</head>
+<body class="text-slate-800 min-h-screen flex flex-col">
+
+  <!-- Toast 알림창 -->
+  <div id="toastContainer" class="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-2 pointer-events-none w-[92%] max-w-sm"></div>
+
+  <!-- 1. 로그인 화면 -->
+  <div id="loginScreen" class="fixed inset-0 bg-slate-900/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-sm w-full p-6 sm:p-8 space-y-6 shadow-2xl border border-slate-100">
+      <div class="text-center space-y-2">
+        <div class="bg-indigo-600 w-14 h-14 rounded-2xl mx-auto flex items-center justify-center shadow-lg shadow-indigo-200">
+          <i class="fa-solid fa-pen-to-square text-2xl text-white"></i>
+        </div>
+        <h2 class="text-2xl font-extrabold text-slate-800">업무량 기입 로그인</h2>
+        <p class="text-xs text-slate-500">본인의 작업자 이름을 선택하고 로그인하세요.</p>
+      </div>
+
+      <form onsubmit="handleLogin(event)" class="space-y-4">
+        <div>
+          <label class="block text-xs font-bold text-slate-600 mb-1.5">접속 계정 선택</label>
+          <select id="loginUserSelect" class="w-full border border-slate-300 rounded-xl px-4 py-3.5 bg-slate-50 font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none"></select>
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-600 mb-1.5">비밀번호</label>
+          <input type="password" id="loginPassword" inputmode="numeric" placeholder="초기 비밀번호: 1234" required class="w-full border border-slate-300 rounded-xl px-4 py-3.5 bg-slate-50 focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+        </div>
+
+        <button type="submit" class="w-full bg-indigo-600 active:bg-indigo-800 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl shadow-lg shadow-indigo-200 transition flex items-center justify-center gap-2">
+          <i class="fa-solid fa-right-to-bracket"></i> 시작하기
+        </button>
+      </form>
+      <p class="text-[11px] text-center text-slate-400">작업자 초기 비밀번호: <b>1234</b> / 관리자: <b>admin123</b></p>
+    </div>
+  </div>
+
+  <!-- 2. 상단 헤더 -->
+  <header class="bg-indigo-900 text-white shadow-md sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center gap-2">
+      <div class="flex items-center space-x-2.5 min-w-0">
+        <div class="bg-indigo-700 p-2 rounded-xl shrink-0">
+          <i class="fa-solid fa-layer-group text-base text-indigo-200"></i>
+        </div>
+        <div class="truncate">
+          <h1 class="text-base sm:text-lg font-bold tracking-tight truncate">업무량 기입 시스템</h1>
+          <p id="currentUserBadge" class="text-[11px] text-indigo-200 truncate"></p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-1.5 shrink-0">
+        <!-- 관리자 전용 컨트롤 -->
+        <div id="adminHeaderControls" class="hidden items-center gap-1.5">
+          <input type="date" id="filterDate" class="bg-indigo-800 border border-indigo-600 text-white rounded-lg px-2 py-1 text-xs focus:outline-none" />
+          <button type="button" onclick="generateSampleData()" class="bg-amber-600 hover:bg-amber-500 text-white px-2.5 py-1.5 rounded-lg text-xs font-medium transition">
+            샘플
+          </button>
+          <button type="button" onclick="openWorkerModal()" class="bg-indigo-700 hover:bg-indigo-600 text-white px-2.5 py-1.5 rounded-lg text-xs font-medium transition">
+            인원관리
+          </button>
+          <button type="button" onclick="exportCSV()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-1.5 rounded-lg text-xs font-medium transition">
+            엑셀
+          </button>
+        </div>
+
+        <button type="button" onclick="logout()" class="bg-rose-600 active:bg-rose-700 hover:bg-rose-500 text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1">
+          <i class="fa-solid fa-power-off"></i> <span>로그아웃</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- 3. 메인 컨텐츠 영역 -->
+  <main id="mainContainer" class="flex-1 w-full max-w-7xl mx-auto px-4 py-5 space-y-6">
+
+    <!-- [관리자 전용] KPI 요약 카드 4종 -->
+    <section id="adminKpiSection" class="hidden grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+      <div class="bg-white rounded-2xl p-4 card-shadow border-l-4 border-blue-500">
+        <span class="text-xs font-semibold text-slate-400">1단계: 수집 영상 (기준일)</span>
+        <div class="mt-2 flex items-baseline gap-1">
+          <h2 id="sumCollect" class="text-2xl font-extrabold text-blue-600">0</h2>
+          <span class="text-xs text-slate-500 font-semibold">건 (영상)</span>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-2xl p-4 card-shadow border-l-4 border-amber-500">
+        <span class="text-xs font-semibold text-slate-400">2단계: 정제 완료 (기준일)</span>
+        <div class="mt-2 flex items-baseline gap-2">
+          <div>
+            <span id="sumCleanCnt" class="text-2xl font-extrabold text-amber-600">0</span>
+            <span class="text-xs text-slate-500 font-semibold">건</span>
+          </div>
+          <span class="text-slate-300">|</span>
+          <div>
+            <span id="sumCleanImg" class="text-xl font-extrabold text-amber-700">0</span>
+            <span class="text-xs text-slate-500 font-semibold">장</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-2xl p-4 card-shadow border-l-4 border-emerald-500">
+        <span class="text-xs font-semibold text-slate-400">3단계: 가공 완료 (기준일)</span>
+        <div class="mt-2 flex items-baseline gap-2">
+          <div>
+            <span id="sumLabelCnt" class="text-2xl font-extrabold text-emerald-600">0</span>
+            <span class="text-xs text-slate-500 font-semibold">건</span>
+          </div>
+          <span class="text-slate-300">|</span>
+          <div>
+            <span id="sumLabelImg" class="text-xl font-extrabold text-emerald-700">0</span>
+            <span class="text-xs text-slate-500 font-semibold">장</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-2xl p-4 card-shadow border-l-4 border-indigo-600">
+        <div class="flex justify-between items-center">
+          <span class="text-xs font-semibold text-slate-400">기준일 총합 / 달성률</span>
+          <span id="leaveCountBadge" class="text-[11px] font-bold text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full">휴가 0명</span>
+        </div>
+        <div class="mt-2 flex items-baseline justify-between">
+          <div class="text-sm font-bold text-slate-700">
+            총 <strong id="sumTotalCnt" class="text-xl font-extrabold text-indigo-700">0</strong>건 /
+            <strong id="sumTotalImg" class="text-xl font-extrabold text-indigo-700">0</strong>장
+          </div>
+          <span id="avgRate" class="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">0%</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- [관리자 전용] 탭 네비게이션 -->
+    <div id="adminTabNav" class="hidden flex-wrap justify-between items-center gap-2 border-b border-slate-200 pb-3">
+      <div class="flex space-x-2">
+        <button type="button" id="btnTabEntry" onclick="switchTab('entry')" class="tab-active px-4 py-2 rounded-xl text-xs sm:text-sm shadow-sm transition flex items-center gap-1.5">
+          <i class="fa-solid fa-clipboard-check"></i> 업무량 기입 및 작업자 카드
+        </button>
+        <button type="button" id="btnTabChart" onclick="switchTab('chart')" class="tab-inactive px-4 py-2 rounded-xl text-xs sm:text-sm shadow-sm transition flex items-center gap-1.5">
+          <i class="fa-solid fa-chart-column"></i> 주간 누적 생산량 차트
+        </button>
+      </div>
+      <span class="text-xs text-indigo-600 font-semibold">👑 PL 관리자 통합 대시보드 모드 (월차자 목표 자동 차감)</span>
+    </div>
+
+    <!-- 탭 1: 기입란 (작업자 로그인 시 오직 이 카드만 단독으로 중앙 표시됨) -->
+    <div id="tabEntryContent">
+      <div id="entryGridWrapper" class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+        <!-- ★ 핵심: 내 공정 업무량 기입 카드 (월차/반차 지정 포함) -->
+        <section id="formContainer" class="bg-white rounded-3xl p-5 sm:p-7 card-shadow w-full max-w-md mx-auto lg:max-w-none h-fit border border-slate-100">
+          <div class="flex justify-between items-center border-b border-slate-100 pb-4 mb-5">
+            <h3 class="text-lg font-extrabold text-slate-800 flex items-center gap-2">
+              <i class="fa-regular fa-pen-to-square text-indigo-600"></i>
+              <span id="formModeTitle">내 공정 업무량 기입</span>
+            </h3>
+            <button type="button" onclick="resetFormValues()" class="text-xs font-semibold text-slate-500 active:bg-slate-200 hover:text-indigo-600 bg-slate-100 px-3 py-1.5 rounded-lg transition flex items-center gap-1">
+              <i class="fa-solid fa-rotate-left"></i> 초기화
+            </button>
+          </div>
+
+          <input type="hidden" id="editingLogId" value="" />
+          <input type="hidden" id="attendanceStatus" value="정상근무" />
+
+          <form id="workForm" onsubmit="saveWorkload(event)" class="space-y-4">
+            <!-- 작업 일자 -->
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1.5">작업 일자</label>
+              <input type="date" id="workDate" onchange="onWorkerDateChange()" required class="w-full border border-slate-300 rounded-xl px-3.5 py-3 text-slate-800 font-medium bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+            </div>
+
+            <!-- 작업자 (로그인 계정) -->
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1.5">작업자 (로그인 계정)</label>
+              <select id="workerSelect" onchange="onWorkerDateChange()" required class="w-full border border-slate-300 rounded-xl px-3.5 py-3 bg-slate-100 text-slate-800 font-bold focus:outline-none"></select>
+            </div>
+
+            <!-- ★ 신규 추가: 근무 형태 (정상근무 / 월차 / 반차) 원터치 선택 버튼 -->
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1.5">근무 형태 (월차 · 반차 지정)</label>
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-2" id="attendanceBtnGroup">
+                <button type="button" onclick="setAttendance('정상근무')" data-status="정상근무"
+                  class="att-btn py-2.5 px-2 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-1 bg-indigo-600 text-white border-indigo-600 shadow-sm">
+                  💼 정상근무
+                </button>
+                <button type="button" onclick="setAttendance('월차')" data-status="월차"
+                  class="att-btn py-2.5 px-2 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-1 bg-white text-slate-600 border-slate-300 hover:bg-purple-50">
+                  🏖️ 월차(연차)
+                </button>
+                <button type="button" onclick="setAttendance('오전반차')" data-status="오전반차"
+                  class="att-btn py-2.5 px-2 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-1 bg-white text-slate-600 border-slate-300 hover:bg-amber-50">
+                  🌅 오전반차
+                </button>
+                <button type="button" onclick="setAttendance('오후반차')" data-status="오후반차"
+                  class="att-btn py-2.5 px-2 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-1 bg-white text-slate-600 border-slate-300 hover:bg-amber-50">
+                  🌇 오후반차
+                </button>
+              </div>
+              <p id="leaveNoticeMsg" class="hidden mt-2 text-xs font-semibold text-purple-700 bg-purple-50 border border-purple-200 rounded-xl px-3 py-2">
+                🏖️ 월차(휴가) 지정 시 당일 목표량이 0건으로 자동 처리되며 실적 입력이 비활성화됩니다.
+              </p>
+            </div>
+
+            <!-- 공정별 입력 박스 (수집: 영상 건수 / 정제·가공: 건수 + 장수) -->
+            <div id="workloadInputsBox" class="bg-slate-50/90 p-4 rounded-2xl space-y-4 border border-slate-200/80 transition-opacity">
+
+              <!-- 1. 수집 (영상 건수) -->
+              <div class="bg-white p-3.5 rounded-xl border border-slate-200/70 shadow-sm">
+                <div class="flex items-center justify-between gap-2">
+                  <div>
+                    <label for="cntCollect" class="text-sm font-bold text-blue-700 flex items-center gap-2">
+                      <span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span> 수집 완료 (영상)
+                    </label>
+                    <span class="text-[11px] text-slate-400 ml-4">원시 영상 확보 건수</span>
+                  </div>
+                  <div class="relative w-32">
+                    <input type="number" id="cntCollect" inputmode="numeric" pattern="[0-9]*" min="0" value="0"
+                      onfocus="if(this.value==='0') this.value='';"
+                      onblur="if(this.value==='') this.value='0'; updateLiveFormSum();"
+                      oninput="updateLiveFormSum()" required
+                      class="work-num-input w-full text-right border border-slate-300 rounded-xl pl-3 pr-8 py-2.5 font-extrabold text-slate-800 bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+                    <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none">건</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 2. 정제 (건수 / 장수) -->
+              <div class="bg-white p-3.5 rounded-xl border border-slate-200/70 shadow-sm space-y-2.5">
+                <div class="flex items-center justify-between">
+                  <span class="text-sm font-bold text-amber-700 flex items-center gap-2">
+                    <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span> 정제 완료
+                  </span>
+                  <span class="text-[11px] text-slate-400">클리닝 건수 및 프레임 장수</span>
+                </div>
+                <div class="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <label for="cntClean" class="block text-[11px] font-semibold text-slate-500 mb-1">정제 건수</label>
+                    <div class="relative">
+                      <input type="number" id="cntClean" inputmode="numeric" pattern="[0-9]*" min="0" value="0"
+                        onfocus="if(this.value==='0') this.value='';"
+                        onblur="if(this.value==='') this.value='0'; updateLiveFormSum();"
+                        oninput="updateLiveFormSum()" required
+                        class="work-num-input w-full text-right border border-slate-300 rounded-xl pl-3 pr-8 py-2.5 font-extrabold text-slate-800 bg-white focus:ring-2 focus:ring-amber-500 focus:outline-none" />
+                      <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none">건</span>
+                    </div>
+                  </div>
+                  <div>
+                    <label for="imgClean" class="block text-[11px] font-semibold text-slate-500 mb-1">정제 장수</label>
+                    <div class="relative">
+                      <input type="number" id="imgClean" inputmode="numeric" pattern="[0-9]*" min="0" value="0"
+                        onfocus="if(this.value==='0') this.value='';"
+                        onblur="if(this.value==='') this.value='0'; updateLiveFormSum();"
+                        oninput="updateLiveFormSum()" required
+                        class="work-num-input w-full text-right border border-amber-300 rounded-xl pl-3 pr-8 py-2.5 font-extrabold text-amber-800 bg-amber-50/30 focus:ring-2 focus:ring-amber-500 focus:outline-none" />
+                      <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-amber-600 pointer-events-none">장</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 3. 가공 (건수 / 장수) -->
+              <div class="bg-white p-3.5 rounded-xl border border-slate-200/70 shadow-sm space-y-2.5">
+                <div class="flex items-center justify-between">
+                  <span class="text-sm font-bold text-emerald-700 flex items-center gap-2">
+                    <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> 가공 완료
+                  </span>
+                  <span class="text-[11px] text-slate-400">라벨링 건수 및 이미지 장수</span>
+                </div>
+                <div class="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <label for="cntLabel" class="block text-[11px] font-semibold text-slate-500 mb-1">가공 건수</label>
+                    <div class="relative">
+                      <input type="number" id="cntLabel" inputmode="numeric" pattern="[0-9]*" min="0" value="0"
+                        onfocus="if(this.value==='0') this.value='';"
+                        onblur="if(this.value==='') this.value='0'; updateLiveFormSum();"
+                        oninput="updateLiveFormSum()" required
+                        class="work-num-input w-full text-right border border-slate-300 rounded-xl pl-3 pr-8 py-2.5 font-extrabold text-slate-800 bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
+                      <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none">건</span>
+                    </div>
+                  </div>
+                  <div>
+                    <label for="imgLabel" class="block text-[11px] font-semibold text-slate-500 mb-1">가공 장수</label>
+                    <div class="relative">
+                      <input type="number" id="imgLabel" inputmode="numeric" pattern="[0-9]*" min="0" value="0"
+                        onfocus="if(this.value==='0') this.value='';"
+                        onblur="if(this.value==='') this.value='0'; updateLiveFormSum();"
+                        oninput="updateLiveFormSum()" required
+                        class="work-num-input w-full text-right border border-emerald-300 rounded-xl pl-3 pr-8 py-2.5 font-extrabold text-emerald-800 bg-emerald-50/30 focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
+                      <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-emerald-600 pointer-events-none">장</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 실시간 합계 표시줄 -->
+              <div class="pt-2 border-t border-slate-200/80 flex flex-col gap-1">
+                <div class="flex justify-between items-center">
+                  <span class="text-xs font-bold text-slate-500">총 건수 합계 (목표 대비)</span>
+                  <span id="liveFormSumCnt" class="font-extrabold text-indigo-600 text-sm">0건 (0%)</span>
+                </div>
+                <div class="flex justify-between items-center">
+                  <span class="text-xs font-bold text-slate-500">총 장수 합계 (정제+가공)</span>
+                  <span id="liveFormSumImg" class="font-extrabold text-emerald-600 text-sm">0장</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 일일 목표(건) & 반려/재작업(건) -->
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label for="dailyTarget" class="block text-xs font-bold text-slate-600 mb-1.5">일일 목표(건)</label>
+                <input type="number" id="dailyTarget" inputmode="numeric" pattern="[0-9]*" min="0" value="150"
+                  oninput="updateLiveFormSum()" required
+                  class="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+              </div>
+              <div>
+                <label for="cntReject" class="block text-xs font-bold text-slate-600 mb-1.5">반려/재작업(건)</label>
+                <input type="number" id="cntReject" inputmode="numeric" pattern="[0-9]*" min="0" value="0"
+                  onfocus="if(this.value==='0') this.value='';"
+                  onblur="if(this.value==='') this.value='0';"
+                  class="work-num-input w-full border border-slate-300 rounded-xl px-3.5 py-2.5 font-semibold text-slate-800 focus:ring-2 focus:ring-rose-500 focus:outline-none" />
+              </div>
+            </div>
+
+            <!-- 특이사항 / 이슈 메모 -->
+            <div>
+              <label for="workMemo" class="block text-xs font-bold text-slate-600 mb-1.5">특이사항 / 휴가 사유 메모</label>
+              <input type="text" id="workMemo" placeholder="예: 개인 연차 사용 / 영상 정제 완료 등"
+                class="w-full border border-slate-300 rounded-xl px-3.5 py-3 text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+            </div>
+
+            <!-- 실적 저장 버튼 -->
+            <button type="submit" id="btnSubmitForm" class="w-full bg-indigo-600 active:bg-indigo-800 hover:bg-indigo-700 text-white font-bold py-3.5 rounded-2xl shadow-lg shadow-indigo-200 transition flex items-center justify-center gap-2 mt-2">
+              <i class="fa-solid fa-check"></i> <span id="btnSubmitText">실적 저장하기</span>
+            </button>
+          </form>
+        </section>
+
+        <!-- [관리자 전용] 우측 작업자별 현황 카드 영역 -->
+        <section id="adminWorkerCardsSection" class="hidden lg:col-span-2 space-y-4">
+          <div class="flex justify-between items-center">
+            <h3 class="text-base sm:text-lg font-bold text-slate-800 flex items-center gap-2">
+              <i class="fa-solid fa-id-card-clip text-indigo-600"></i> 라벨러별 공정 및 근태 현황 카드
+            </h3>
+            <span id="selectedDateLabel" class="text-xs font-semibold text-indigo-700 bg-indigo-50 px-3 py-1 rounded-full"></span>
+          </div>
+          <div id="workerCardsGrid" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+        </section>
+
+      </div>
+    </div>
+
+    <!-- [관리자 전용] 탭 2: 주간 누적 차트 -->
+    <div id="tabChartContent" class="hidden space-y-6">
+      <div class="bg-white rounded-2xl p-4 card-shadow flex flex-wrap justify-between items-center gap-3">
+        <div>
+          <h3 class="text-base font-bold text-slate-800">주간 누적 생산량 및 공정별 통계</h3>
+          <p id="chartPeriodInfo" class="text-xs text-slate-500 mt-0.5"></p>
+        </div>
+        <div class="flex items-center gap-2">
+          <select id="chartUnitMode" onchange="renderCharts()" class="border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700">
+            <option value="cnt">건수(건) 기준 차트 보기</option>
+            <option value="img">장수(장) 기준 차트 보기 (정제·가공)</option>
+          </select>
+          <span id="weeklyTotalBadge" class="text-xs font-bold bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-full">주간 총 0건</span>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div class="bg-white rounded-2xl p-5 card-shadow lg:col-span-2">
+          <h4 class="font-bold text-slate-800 mb-3 text-sm">작업자별 주간(최근 7일) 누적 생산량</h4>
+          <div class="relative h-72"><canvas id="workerWeeklyChart"></canvas></div>
+        </div>
+        <div class="bg-white rounded-2xl p-5 card-shadow lg:col-span-1">
+          <h4 class="font-bold text-slate-800 mb-3 text-sm">공정별 누적 비중</h4>
+          <div class="relative h-56 flex items-center justify-center"><canvas id="eventRatioChart"></canvas></div>
+          <div id="eventRatioSummary" class="mt-4 grid grid-cols-3 gap-1.5 text-xs border-t pt-3 text-center"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- [관리자 전용] 하단 전체 기입 내역 로그 표 -->
+    <section id="adminLogTableSection" class="hidden bg-white rounded-2xl p-5 card-shadow">
+      <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
+        <div class="flex items-center gap-3">
+          <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
+            <i class="fa-solid fa-table-list text-indigo-600"></i> 전체 기입 내역 및 월차 로그
+          </h3>
+          <label class="inline-flex items-center gap-1.5 text-xs text-slate-600 bg-slate-100 px-3 py-1.5 rounded-lg cursor-pointer">
+            <input type="checkbox" id="onlySelectedDateCheck" onchange="renderAll()" class="rounded text-indigo-600" />
+            <span>기준일만 보기</span>
+          </label>
+        </div>
+        <div class="flex items-center gap-2">
+          <input type="text" id="searchKeyword" oninput="renderAll()" placeholder="작업자, 월차, 메모 검색..." class="border border-slate-300 rounded-lg px-3 py-1 text-xs focus:outline-none" />
+          <button type="button" onclick="clearAllLogs()" class="text-xs text-rose-600 hover:bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-lg">
+            초기화
+          </button>
+        </div>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse text-xs sm:text-sm">
+          <thead>
+            <tr class="border-b bg-slate-50 text-slate-600 text-xs uppercase">
+              <th class="py-2.5 px-3">일자</th>
+              <th class="py-2.5 px-3">작업자</th>
+              <th class="py-2.5 px-3 text-center">근태</th>
+              <th class="py-2.5 px-3 text-right text-blue-600">수집(영상)</th>
+              <th class="py-2.5 px-3 text-right text-amber-600">정제(건 / 장)</th>
+              <th class="py-2.5 px-3 text-right text-emerald-600">가공(건 / 장)</th>
+              <th class="py-2.5 px-3 text-right font-bold">총 건수 / 총 장수</th>
+              <th class="py-2.5 px-3 text-right text-rose-500">반려</th>
+              <th class="py-2.5 px-3">비고</th>
+              <th class="py-2.5 px-3 text-center">관리</th>
+            </tr>
+          </thead>
+          <tbody id="logTableBody" class="divide-y divide-slate-100"></tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- 작업자 명단 관리 모달 (관리자용) -->
+  <div id="workerModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
+      <div class="flex justify-between items-center border-b pb-3">
+        <h4 class="font-bold text-base">작업자(라벨러) 명단 관리</h4>
+        <button type="button" onclick="closeWorkerModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+      <p class="text-xs text-slate-500">팀원 이름을 쉼표(,) 또는 줄바꿈으로 구분하여 입력하세요.</p>
+      <textarea id="workerListInput" rows="5" class="w-full border border-slate-300 rounded-xl p-3 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"></textarea>
+      <div class="flex justify-end gap-2">
+        <button type="button" onclick="closeWorkerModal()" class="px-4 py-2 rounded-lg text-sm bg-slate-100">취소</button>
+        <button type="button" onclick="saveWorkerList()" class="px-4 py-2 rounded-lg text-sm bg-indigo-600 text-white font-semibold">저장하기</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const STORAGE_LOGS_KEY = 'koinonia_labeler_logs_v7';
+    const STORAGE_WORKERS_KEY = 'koinonia_labeler_workers_v7';
+
+    const defaultWorkers = [
+      '라벨러 1 (김민수)', '라벨러 2 (이지은)', '라벨러 3 (박준형)', '라벨러 4 (최유진)',
+      '라벨러 5 (정우성)', '라벨러 6 (강하늘)', '라벨러 7 (윤서연)', '라벨러 8 (한지민)', 'PL 관리자'
+    ];
+
+    let workers = JSON.parse(localStorage.getItem(STORAGE_WORKERS_KEY)) || defaultWorkers;
+    let logs = JSON.parse(localStorage.getItem(STORAGE_LOGS_KEY)) || [];
+    let currentUser = null;
+
+    function formatLocalDate(dateObj = new Date()) {
+      const y = dateObj.getFullYear();
+      const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const d = String(dateObj.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function showToast(message) {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      toast.className = 'bg-slate-800/95 text-white px-4 py-3 rounded-2xl shadow-xl text-xs font-bold flex items-center justify-center gap-2 toast-anim';
+      toast.innerHTML = `<i class="fa-solid fa-circle-check text-emerald-400 text-sm"></i><span>${escapeHtml(message)}</span>`;
+      container.appendChild(toast);
+      setTimeout(() => toast.remove(), 2500);
+    }
+
+    // ★ 근무 형태(정상근무 / 월차 / 오전반차 / 오후반차) 버튼 상태 전환 및 입력창 제어
+    function setAttendance(status, keepExistingValues = false) {
+      document.getElementById('attendanceStatus').value = status;
+      const buttons = document.querySelectorAll('.att-btn');
+      buttons.forEach(btn => {
+        const s = btn.getAttribute('data-status');
+        if (s === status) {
+          if (status === '월차') {
+            btn.className = 'att-btn py-2.5 px-2 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-1 bg-purple-600 text-white border-purple-600 shadow-sm';
+          } else if (status.includes('반차')) {
+            btn.className = 'att-btn py-2.5 px-2 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-1 bg-amber-500 text-white border-amber-500 shadow-sm';
+          } else {
+            btn.className = 'att-btn py-2.5 px-2 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-1 bg-indigo-600 text-white border-indigo-600 shadow-sm';
+          }
+        } else {
+          btn.className = 'att-btn py-2.5 px-2 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-1 bg-white text-slate-600 border-slate-300 hover:bg-slate-50';
+        }
+      });
+
+      const numInputs = document.querySelectorAll('.work-num-input');
+      const box = document.getElementById('workloadInputsBox');
+      const notice = document.getElementById('leaveNoticeMsg');
+      const targetInput = document.getElementById('dailyTarget');
+
+      if (status === '월차') {
+        notice.classList.remove('hidden');
+        box.classList.add('opacity-50');
+        numInputs.forEach(inp => {
+          inp.value = 0;
+          inp.disabled = true;
+        });
+        targetInput.value = 0;
+        targetInput.disabled = true;
+        if (!document.getElementById('workMemo').value) {
+          document.getElementById('workMemo').value = '월차(연차) 휴가';
+        }
+      } else {
+        notice.classList.add('hidden');
+        box.classList.remove('opacity-50');
+        numInputs.forEach(inp => inp.disabled = false);
+        targetInput.disabled = false;
+
+        if (!keepExistingValues) {
+          if (status === '오전반차' || status === '오후반차') {
+            targetInput.value = 75;
+            if (document.getElementById('workMemo').value === '월차(연차) 휴가') {
+              document.getElementById('workMemo').value = status + ' 사용';
+            }
+          } else {
+            targetInput.value = 150;
+            if (document.getElementById('workMemo').value === '월차(연차) 휴가' || document.getElementById('workMemo').value.includes('반차')) {
+              document.getElementById('workMemo').value = '';
+            }
+          }
+        }
+      }
+      updateLiveFormSum();
+    }
+
+    function initLoginScreen() {
+      const select = document.getElementById('loginUserSelect');
+      const realWorkers = workers.filter(w => w !== 'PL 관리자');
+      const options = realWorkers.map(w => `<option value="${w}">👤 ${w}</option>`);
+      options.push(`<option value="PL 관리자">👑 [관리자] PL 관리자</option>`);
+      select.innerHTML = options.join('');
+    }
+
+    function handleLogin(e) {
+      e.preventDefault();
+      const user = document.getElementById('loginUserSelect').value;
+      const pwd = document.getElementById('loginPassword').value;
+
+      if (user === 'PL 관리자' && pwd !== 'admin123' && pwd !== '1234') {
+        alert('관리자 비밀번호가 올바르지 않습니다. (admin123 또는 1234)');
+        return;
+      }
+
+      currentUser = user;
+      const isPL = (currentUser === 'PL 관리자');
+
+      document.getElementById('loginScreen').classList.add('hidden');
+      document.getElementById('currentUserBadge').textContent = isPL ? '👑 관리자 통합 모드' : `${currentUser} 접속 중`;
+
+      const adminHeaderControls = document.getElementById('adminHeaderControls');
+      const adminKpiSection = document.getElementById('adminKpiSection');
+      const adminTabNav = document.getElementById('adminTabNav');
+      const adminWorkerCardsSection = document.getElementById('adminWorkerCardsSection');
+      const adminLogTableSection = document.getElementById('adminLogTableSection');
+      const entryGridWrapper = document.getElementById('entryGridWrapper');
+      const mainContainer = document.getElementById('mainContainer');
+
+      if (isPL) {
+        adminHeaderControls.className = 'flex items-center gap-1.5';
+        adminKpiSection.className = 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4';
+        adminTabNav.className = 'flex flex-wrap justify-between items-center gap-2 border-b border-slate-200 pb-3';
+        adminWorkerCardsSection.className = 'lg:col-span-2 space-y-4 block';
+        adminLogTableSection.className = 'bg-white rounded-2xl p-5 card-shadow block';
+        entryGridWrapper.className = 'grid grid-cols-1 lg:grid-cols-3 gap-6';
+        mainContainer.className = 'flex-1 w-full max-w-7xl mx-auto px-4 py-5 space-y-6';
+      } else {
+        // 일반 작업자: 오직 [내 공정 업무량 기입] 카드만 단독 표시
+        adminHeaderControls.className = 'hidden';
+        adminKpiSection.className = 'hidden';
+        adminTabNav.className = 'hidden';
+        adminWorkerCardsSection.className = 'hidden';
+        adminLogTableSection.className = 'hidden';
+        document.getElementById('tabChartContent').classList.add('hidden');
+        document.getElementById('tabEntryContent').classList.remove('hidden');
+        entryGridWrapper.className = 'flex justify-center items-start';
+        mainContainer.className = 'flex-1 w-full max-w-md mx-auto px-3 py-4 sm:py-8';
+      }
+
+      populateWorkerSelect();
+      onWorkerDateChange();
+      if (isPL) renderAll();
+      showToast(`${currentUser}님 환영합니다!`);
+    }
+
+    function logout() {
+      currentUser = null;
+      document.getElementById('loginPassword').value = '';
+      document.getElementById('loginScreen').classList.remove('hidden');
+    }
+
+    const todayStr = formatLocalDate(new Date());
+    document.getElementById('filterDate').value = todayStr;
+    document.getElementById('workDate').value = todayStr;
+
+    document.getElementById('filterDate').addEventListener('change', (e) => {
+      document.getElementById('workDate').value = e.target.value;
+      onWorkerDateChange();
+      renderAll();
+    });
+
+    function populateWorkerSelect() {
+      const select = document.getElementById('workerSelect');
+      const isPL = (currentUser === 'PL 관리자');
+      const realWorkers = workers.filter(w => w !== 'PL 관리자');
+
+      if (isPL) {
+        select.innerHTML = realWorkers.map(w => `<option value="${w}">${w}</option>`).join('');
+        select.disabled = false;
+        select.className = 'w-full border border-slate-300 rounded-xl px-3.5 py-3 bg-white text-slate-800 font-bold focus:ring-2 focus:ring-indigo-500 focus:outline-none';
+      } else {
+        select.innerHTML = `<option value="${currentUser}">${currentUser}</option>`;
+        select.value = currentUser;
+        select.disabled = true;
+        select.className = 'w-full border border-slate-300 rounded-xl px-3.5 py-3 bg-slate-100 text-slate-800 font-bold focus:outline-none';
+      }
+    }
+
+    function onWorkerDateChange() {
+      const date = document.getElementById('workDate').value;
+      const worker = document.getElementById('workerSelect').value;
+      const existing = logs.find(l => l.date === date && l.worker === worker);
+
+      if (existing) {
+        document.getElementById('editingLogId').value = String(existing.id);
+        document.getElementById('cntCollect').value = existing.collect || 0;
+        document.getElementById('cntClean').value = existing.clean || 0;
+        document.getElementById('imgClean').value = existing.cleanImg || 0;
+        document.getElementById('cntLabel').value = existing.label || 0;
+        document.getElementById('imgLabel').value = existing.labelImg || 0;
+        document.getElementById('dailyTarget').value = existing.target !== undefined ? existing.target : 150;
+        document.getElementById('cntReject').value = existing.reject || 0;
+        document.getElementById('workMemo').value = existing.memo || '';
+        setAttendance(existing.attendance || '정상근무', true);
+        document.getElementById('btnSubmitText').textContent = '실적 / 근태 업데이트하기';
+      } else {
+        resetFormValues();
+      }
+      updateLiveFormSum();
+    }
+
+    function resetFormValues() {
+      document.getElementById('editingLogId').value = '';
+      document.getElementById('cntCollect').value = 0;
+      document.getElementById('cntClean').value = 0;
+      document.getElementById('imgClean').value = 0;
+      document.getElementById('cntLabel').value = 0;
+      document.getElementById('imgLabel').value = 0;
+      document.getElementById('dailyTarget').value = 150;
+      document.getElementById('cntReject').value = 0;
+      document.getElementById('workMemo').value = '';
+      setAttendance('정상근무', false);
+      document.getElementById('btnSubmitText').textContent = '실적 저장하기';
+      updateLiveFormSum();
+    }
+
+    function updateLiveFormSum() {
+      const att = document.getElementById('attendanceStatus').value;
+      const c = Math.max(0, parseInt(document.getElementById('cntCollect').value, 10) || 0);
+      const clCnt = Math.max(0, parseInt(document.getElementById('cntClean').value, 10) || 0);
+      const clImg = Math.max(0, parseInt(document.getElementById('imgClean').value, 10) || 0);
+      const lbCnt = Math.max(0, parseInt(document.getElementById('cntLabel').value, 10) || 0);
+      const lbImg = Math.max(0, parseInt(document.getElementById('imgLabel').value, 10) || 0);
+      const tg = Math.max(0, parseInt(document.getElementById('dailyTarget').value, 10) || 0);
+
+      const sumCnt = c + clCnt + lbCnt;
+      const sumImg = clImg + lbImg;
+
+      if (att === '월차') {
+        document.getElementById('liveFormSumCnt').textContent = '🏖️ 월차 (목표 제외)';
+        document.getElementById('liveFormSumImg').textContent = '0장';
+      } else {
+        const pct = tg > 0 ? Math.round((sumCnt / tg) * 100) : 0;
+        document.getElementById('liveFormSumCnt').textContent = `${sumCnt.toLocaleString()}건 (${pct}%)`;
+        document.getElementById('liveFormSumImg').textContent = `${sumImg.toLocaleString()}장`;
+      }
+    }
+
+    function saveWorkload(e) {
+      e.preventDefault();
+      const date = document.getElementById('workDate').value;
+      const worker = document.getElementById('workerSelect').value;
+      const attendance = document.getElementById('attendanceStatus').value || '정상근무';
+      const collect = attendance === '월차' ? 0 : (Math.max(0, parseInt(document.getElementById('cntCollect').value, 10) || 0));
+      const clean = attendance === '월차' ? 0 : (Math.max(0, parseInt(document.getElementById('cntClean').value, 10) || 0));
+      const cleanImg = attendance === '월차' ? 0 : (Math.max(0, parseInt(document.getElementById('imgClean').value, 10) || 0));
+      const label = attendance === '월차' ? 0 : (Math.max(0, parseInt(document.getElementById('cntLabel').value, 10) || 0));
+      const labelImg = attendance === '월차' ? 0 : (Math.max(0, parseInt(document.getElementById('imgLabel').value, 10) || 0));
+      const target = attendance === '월차' ? 0 : (Math.max(0, parseInt(document.getElementById('dailyTarget').value, 10) || 150));
+      const reject = attendance === '월차' ? 0 : (Math.max(0, parseInt(document.getElementById('cntReject').value, 10) || 0));
+      const memo = document.getElementById('workMemo').value.trim();
+
+      const existingIdx = logs.findIndex(item => item.date === date && item.worker === worker);
+      const record = {
+        id: existingIdx > -1 ? String(logs[existingIdx].id) : String(Date.now() + '_' + Math.random().toString(36).slice(2, 6)),
+        date, worker, attendance, collect, clean, cleanImg, label, labelImg, target, reject, memo
+      };
+
+      if (existingIdx > -1) {
+        logs[existingIdx] = record;
+      } else {
+        logs.unshift(record);
+      }
+
+      logs.sort((a, b) => b.date.localeCompare(a.date));
+      localStorage.setItem(STORAGE_LOGS_KEY, JSON.stringify(logs));
+
+      document.getElementById('btnSubmitText').textContent = '실적 / 근태 업데이트하기';
+      if (attendance === '월차') {
+        showToast(`${date} [${worker}] 월차(휴가)가 등록되었습니다.`);
+      } else {
+        showToast(`${date} 실적 저장 완료! (${collect + clean + label}건 / ${cleanImg + labelImg}장)`);
+      }
+
+      if (currentUser === 'PL 관리자') {
+        document.getElementById('filterDate').value = date;
+        renderAll();
+      }
+    }
+
+    function switchTab(tab) {
+      const entryTab = document.getElementById('tabEntryContent');
+      const chartTab = document.getElementById('tabChartContent');
+      const btnEntry = document.getElementById('btnTabEntry');
+      const btnChart = document.getElementById('btnTabChart');
+
+      if (tab === 'entry') {
+        entryTab.classList.remove('hidden');
+        chartTab.classList.add('hidden');
+        btnEntry.className = 'tab-active px-4 py-2 rounded-xl text-xs sm:text-sm shadow-sm transition flex items-center gap-1.5';
+        btnChart.className = 'tab-inactive px-4 py-2 rounded-xl text-xs sm:text-sm shadow-sm transition flex items-center gap-1.5';
+      } else {
+        entryTab.classList.add('hidden');
+        chartTab.classList.remove('hidden');
+        btnChart.className = 'tab-active px-4 py-2 rounded-xl text-xs sm:text-sm shadow-sm transition flex items-center gap-1.5';
+        btnEntry.className = 'tab-inactive px-4 py-2 rounded-xl text-xs sm:text-sm shadow-sm transition flex items-center gap-1.5';
+        requestAnimationFrame(() => renderCharts());
+      }
+    }
+
+    function editLogById(logId) {
+      const rec = logs.find(l => String(l.id) === String(logId));
+      if (!rec) return;
+      switchTab('entry');
+      document.getElementById('workDate').value = rec.date;
+      document.getElementById('workerSelect').value = rec.worker;
+      onWorkerDateChange();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function deleteLog(id) {
+      if (!confirm('해당 내역을 삭제하시겠습니까?')) return;
+      logs = logs.filter(l => String(l.id) !== String(id));
+      localStorage.setItem(STORAGE_LOGS_KEY, JSON.stringify(logs));
+      renderAll();
+      showToast('삭제되었습니다.');
+    }
+
+    function clearAllLogs() {
+      if (confirm('모든 데이터를 초기화하시겠습니까?')) {
+        logs = [];
+        localStorage.removeItem(STORAGE_LOGS_KEY);
+        renderAll();
+        showToast('전체 초기화되었습니다.');
+      }
+    }
+
+    function getLast7Days(baseDateStr) {
+      const dates = [];
+      const parts = baseDateStr.split('-').map(Number);
+      const base = new Date(parts[0], parts[1] - 1, parts[2]);
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() - i);
+        dates.push(formatLocalDate(d));
+      }
+      return dates;
+    }
+
+    let workerWeeklyChartInstance = null;
+    let eventRatioChartInstance = null;
+
+    function renderCharts() {
+      const selectedDate = document.getElementById('filterDate').value;
+      const last7Days = getLast7Days(selectedDate);
+      const mode = document.getElementById('chartUnitMode').value;
+      document.getElementById('chartPeriodInfo').textContent = `분석 기간: ${last7Days[0]} ~ ${last7Days[6]}`;
+
+      const weeklyLogs = logs.filter(l => last7Days.includes(l.date));
+      const realWorkers = workers.filter(w => w !== 'PL 관리자');
+
+      const workerCollect = [], workerClean = [], workerLabel = [];
+      let totalCollect = 0, totalClean = 0, totalLabel = 0;
+
+      realWorkers.forEach(w => {
+        const wLogs = weeklyLogs.filter(l => l.worker === w);
+        const c = mode === 'cnt' ? wLogs.reduce((acc, cur) => acc + (cur.collect || 0), 0) : 0;
+        const cl = wLogs.reduce((acc, cur) => acc + (mode === 'cnt' ? (cur.clean || 0) : (cur.cleanImg || 0)), 0);
+        const lb = wLogs.reduce((acc, cur) => acc + (mode === 'cnt' ? (cur.label || 0) : (cur.labelImg || 0)), 0);
+        workerCollect.push(c); workerClean.push(cl); workerLabel.push(lb);
+        totalCollect += c; totalClean += cl; totalLabel += lb;
+      });
+
+      const unitStr = mode === 'cnt' ? '건' : '장';
+      const grandTotal = totalCollect + totalClean + totalLabel;
+      document.getElementById('weeklyTotalBadge').textContent = `주간 총 ${grandTotal.toLocaleString()}${unitStr}`;
+
+      const cPct = grandTotal > 0 ? ((totalCollect / grandTotal) * 100).toFixed(1) : '0.0';
+      const clPct = grandTotal > 0 ? ((totalClean / grandTotal) * 100).toFixed(1) : '0.0';
+      const lbPct = grandTotal > 0 ? ((totalLabel / grandTotal) * 100).toFixed(1) : '0.0';
+
+      document.getElementById('eventRatioSummary').innerHTML = `
+        <div class="bg-blue-50 p-1.5 rounded"><span class="block text-blue-600 font-bold">수집(영상)</span><strong>${mode === 'cnt' ? totalCollect + '건' : '-'}</strong><br><span class="text-slate-400">(${cPct}%)</span></div>
+        <div class="bg-amber-50 p-1.5 rounded"><span class="block text-amber-600 font-bold">정제(${unitStr})</span><strong>${totalClean.toLocaleString()}${unitStr}</strong><br><span class="text-slate-400">(${clPct}%)</span></div>
+        <div class="bg-emerald-50 p-1.5 rounded"><span class="block text-emerald-600 font-bold">가공(${unitStr})</span><strong>${totalLabel.toLocaleString()}${unitStr}</strong><br><span class="text-slate-400">(${lbPct}%)</span></div>
+      `;
+
+      if (typeof window.Chart === 'undefined') return;
+
+      const datasets = mode === 'cnt'
+        ? [
+            { label: '수집(영상 건)', data: workerCollect, backgroundColor: '#3b82f6', borderRadius: 4 },
+            { label: '정제(건)', data: workerClean, backgroundColor: '#f59e0b', borderRadius: 4 },
+            { label: '가공(건)', data: workerLabel, backgroundColor: '#10b981', borderRadius: 4 }
+          ]
+        : [
+            { label: '정제(장)', data: workerClean, backgroundColor: '#f59e0b', borderRadius: 4 },
+            { label: '가공(장)', data: workerLabel, backgroundColor: '#10b981', borderRadius: 4 }
+          ];
+
+      const ctxWorker = document.getElementById('workerWeeklyChart').getContext('2d');
+      if (workerWeeklyChartInstance) workerWeeklyChartInstance.destroy();
+      workerWeeklyChartInstance = new Chart(ctxWorker, {
+        type: 'bar',
+        data: { labels: realWorkers, datasets },
+        options: { responsive: true, maintainAspectRatio: false, scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } } }
+      });
+
+      const ctxEvent = document.getElementById('eventRatioChart').getContext('2d');
+      if (eventRatioChartInstance) eventRatioChartInstance.destroy();
+      eventRatioChartInstance = new Chart(ctxEvent, {
+        type: 'doughnut',
+        data: {
+          labels: mode === 'cnt' ? ['수집(건)', '정제(건)', '가공(건)'] : ['정제(장)', '가공(장)'],
+          datasets: [{
+            data: mode === 'cnt' ? [totalCollect || 1, totalClean || 1, totalLabel || 1] : [totalClean || 1, totalLabel || 1],
+            backgroundColor: mode === 'cnt' ? ['#3b82f6', '#f59e0b', '#10b981'] : ['#f59e0b', '#10b981']
+          }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, cutout: '62%' }
+      });
+    }
+
+    function getAttendanceBadge(att) {
+      if (att === '월차') return '<span class="text-[11px] font-bold bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">🏖️ 월차</span>';
+      if (att === '오전반차') return '<span class="text-[11px] font-bold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">🌅 오전반차</span>';
+      if (att === '오후반차') return '<span class="text-[11px] font-bold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">🌇 오후반차</span>';
+      return '<span class="text-[11px] font-medium bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">정상근무</span>';
+    }
+
+    function renderAll() {
+      if (currentUser !== 'PL 관리자') return;
+
+      const selectedDate = document.getElementById('filterDate').value;
+      document.getElementById('selectedDateLabel').textContent = `기준일: ${selectedDate}`;
+
+      const dayLogs = logs.filter(l => l.date === selectedDate);
+      let sumC = 0, sumClCnt = 0, sumClImg = 0, sumLbCnt = 0, sumLbImg = 0;
+      dayLogs.forEach(l => {
+        sumC += (l.collect || 0);
+        sumClCnt += (l.clean || 0);
+        sumClImg += (l.cleanImg || 0);
+        sumLbCnt += (l.label || 0);
+        sumLbImg += (l.labelImg || 0);
+      });
+      const sumTotalCnt = sumC + sumClCnt + sumLbCnt;
+      const sumTotalImg = sumClImg + sumLbImg;
+
+      const realWorkers = workers.filter(w => w !== 'PL 관리자');
+      let totalTarget = 0;
+      let leaveCount = 0;
+
+      // ★ 월차/반차 인원 반영하여 팀 목표 합계 자동 조정
+      realWorkers.forEach(w => {
+        const wLog = dayLogs.find(l => l.worker === w);
+        if (wLog) {
+          if (wLog.attendance === '월차') {
+            leaveCount++;
+            totalTarget += 0;
+          } else if (wLog.attendance === '오전반차' || wLog.attendance === '오후반차') {
+            leaveCount += 0.5;
+            totalTarget += (wLog.target !== undefined ? wLog.target : 75);
+          } else {
+            totalTarget += (wLog.target !== undefined ? wLog.target : 150);
+          }
+        } else {
+          totalTarget += 150;
+        }
+      });
+
+      const rate = totalTarget > 0 ? Math.round((sumTotalCnt / totalTarget) * 100) : 0;
+
+      document.getElementById('sumCollect').textContent = sumC.toLocaleString();
+      document.getElementById('sumCleanCnt').textContent = sumClCnt.toLocaleString();
+      document.getElementById('sumCleanImg').textContent = sumClImg.toLocaleString();
+      document.getElementById('sumLabelCnt').textContent = sumLbCnt.toLocaleString();
+      document.getElementById('sumLabelImg').textContent = sumLbImg.toLocaleString();
+      document.getElementById('sumTotalCnt').textContent = sumTotalCnt.toLocaleString();
+      document.getElementById('sumTotalImg').textContent = sumTotalImg.toLocaleString();
+      document.getElementById('avgRate').textContent = `${rate}%`;
+      document.getElementById('leaveCountBadge').textContent = `휴가 ${leaveCount}명`;
+
+      const grid = document.getElementById('workerCardsGrid');
+      grid.innerHTML = realWorkers.map(w => {
+        const wLog = dayLogs.find(l => l.worker === w);
+        const att = wLog ? (wLog.attendance || '정상근무') : '정상근무';
+        const isFullLeave = (att === '월차');
+        const c = wLog ? (wLog.collect || 0) : 0;
+        const clCnt = wLog ? (wLog.clean || 0) : 0;
+        const clImg = wLog ? (wLog.cleanImg || 0) : 0;
+        const lbCnt = wLog ? (wLog.label || 0) : 0;
+        const lbImg = wLog ? (wLog.labelImg || 0) : 0;
+        const totCnt = c + clCnt + lbCnt;
+        const tg = wLog ? (wLog.target !== undefined ? wLog.target : 150) : 150;
+        const pct = isFullLeave ? 100 : (tg > 0 ? Math.min(100, Math.round((totCnt / tg) * 100)) : 0);
+
+        const badgeColor = isFullLeave
+          ? 'bg-purple-100 text-purple-700'
+          : (pct >= 100 ? 'bg-emerald-100 text-emerald-700' : pct > 0 ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-400');
+
+        return `
+          <div onclick="document.getElementById('workerSelect').value='${w}'; onWorkerDateChange();" class="bg-white rounded-2xl p-4 card-shadow border ${isFullLeave ? 'border-purple-200 bg-purple-50/20' : 'border-slate-100'} hover:border-indigo-400 cursor-pointer transition">
+            <div class="flex justify-between items-start mb-2">
+              <div class="flex items-center gap-1.5">
+                <h4 class="font-bold text-slate-800 text-sm">${escapeHtml(w)}</h4>
+                ${att !== '정상근무' ? getAttendanceBadge(att) : ''}
+              </div>
+              <span class="text-xs font-bold px-2.5 py-0.5 rounded-full ${badgeColor}">
+                ${isFullLeave ? '월차 휴무' : `${totCnt} / ${tg}건 (${pct}%)`}
+              </span>
+            </div>
+            <div class="w-full bg-slate-100 h-2 rounded-full overflow-hidden mb-3">
+              <div class="${isFullLeave ? 'bg-purple-400' : 'bg-indigo-600'} h-full transition-all duration-300" style="width: ${pct}%"></div>
+            </div>
+            <div class="grid grid-cols-3 gap-2 text-center bg-slate-50 rounded-xl p-2 text-xs">
+              <div>
+                <span class="text-slate-400 block">수집(영상)</span>
+                <strong class="text-blue-600 text-sm">${c.toLocaleString()}건</strong>
+              </div>
+              <div class="border-x border-slate-200">
+                <span class="text-slate-400 block">정제(건/장)</span>
+                <strong class="text-amber-600 text-sm">${clCnt.toLocaleString()}건</strong>
+                <span class="block text-[11px] text-amber-700 font-semibold">${clImg.toLocaleString()}장</span>
+              </div>
+              <div>
+                <span class="text-slate-400 block">가공(건/장)</span>
+                <strong class="text-emerald-600 text-sm">${lbCnt.toLocaleString()}건</strong>
+                <span class="block text-[11px] text-emerald-700 font-semibold">${lbImg.toLocaleString()}장</span>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      const keyword = document.getElementById('searchKeyword').value.toLowerCase();
+      const onlyDate = document.getElementById('onlySelectedDateCheck').checked;
+      const filteredLogs = logs.filter(l => {
+        if (onlyDate && l.date !== selectedDate) return false;
+        const att = (l.attendance || '정상근무').toLowerCase();
+        return l.worker.toLowerCase().includes(keyword) || l.date.includes(keyword) || att.includes(keyword) || (l.memo && l.memo.toLowerCase().includes(keyword));
+      });
+
+      const tbody = document.getElementById('logTableBody');
+      if (filteredLogs.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="10" class="text-center py-8 text-slate-400">표시할 내역이 없습니다.</td></tr>`;
+      } else {
+        tbody.innerHTML = filteredLogs.map(l => {
+          const totalCnt = (l.collect || 0) + (l.clean || 0) + (l.label || 0);
+          const totalImg = (l.cleanImg || 0) + (l.labelImg || 0);
+          const att = l.attendance || '정상근무';
+          return `
+            <tr class="hover:bg-slate-50">
+              <td class="py-2.5 px-3 font-medium whitespace-nowrap">${escapeHtml(l.date)}</td>
+              <td class="py-2.5 px-3 font-semibold text-slate-800">${escapeHtml(l.worker)}</td>
+              <td class="py-2.5 px-3 text-center whitespace-nowrap">${getAttendanceBadge(att)}</td>
+              <td class="py-2.5 px-3 text-right font-medium text-blue-600">${(l.collect || 0).toLocaleString()}건</td>
+              <td class="py-2.5 px-3 text-right font-medium text-amber-600">${(l.clean || 0).toLocaleString()}건 <span class="text-xs text-amber-700">(${(l.cleanImg || 0).toLocaleString()}장)</span></td>
+              <td class="py-2.5 px-3 text-right font-medium text-emerald-600">${(l.label || 0).toLocaleString()}건 <span class="text-xs text-emerald-700">(${(l.labelImg || 0).toLocaleString()}장)</span></td>
+              <td class="py-2.5 px-3 text-right font-bold">${totalCnt.toLocaleString()}건 / <span class="text-indigo-600">${totalImg.toLocaleString()}장</span></td>
+              <td class="py-2.5 px-3 text-right text-rose-500">${l.reject || 0}</td>
+              <td class="py-2.5 px-3 text-slate-500 truncate max-w-[140px]">${escapeHtml(l.memo || '-')}</td>
+              <td class="py-2.5 px-3 text-center whitespace-nowrap space-x-2">
+                <button type="button" onclick="editLogById('${l.id}')" class="text-indigo-500 hover:text-indigo-700"><i class="fa-solid fa-pen"></i></button>
+                <button type="button" onclick="deleteLog('${l.id}')" class="text-slate-400 hover:text-rose-600"><i class="fa-solid fa-trash-can"></i></button>
+              </td>
+            </tr>
+          `;
+        }).join('');
+      }
+
+      if (!document.getElementById('tabChartContent').classList.contains('hidden')) {
+        renderCharts();
+      }
+    }
+
+    function generateSampleData() {
+      const selectedDate = document.getElementById('filterDate').value;
+      const last7Days = getLast7Days(selectedDate);
+      const realWorkers = workers.filter(w => w !== 'PL 관리자');
+
+      last7Days.forEach((d, dayIdx) => {
+        realWorkers.forEach((w, idx) => {
+          logs = logs.filter(item => !(item.date === d && item.worker === w));
+          // 샘플 중 일부를 월차/반차로 생성
+          const isLeave = (dayIdx === 6 && idx === 2);
+          const isHalf = (dayIdx === 6 && idx === 5);
+
+          if (isLeave) {
+            logs.push({
+              id: String(Date.now() + '_' + dayIdx + '_' + idx),
+              date: d, worker: w, attendance: '월차',
+              collect: 0, clean: 0, cleanImg: 0, label: 0, labelImg: 0,
+              target: 0, reject: 0, memo: '월차(연차) 휴가'
+            });
+          } else {
+            const factor = isHalf ? 0.5 : 1;
+            const clCnt = Math.round((Math.floor(Math.random() * 35) + 30) * factor);
+            const lbCnt = Math.round((Math.floor(Math.random() * 45) + 40) * factor);
+            logs.push({
+              id: String(Date.now() + '_' + dayIdx + '_' + idx),
+              date: d, worker: w, attendance: isHalf ? '오전반차' : '정상근무',
+              collect: Math.round((Math.floor(Math.random() * 30) + 20) * factor),
+              clean: clCnt,
+              cleanImg: clCnt * (Math.floor(Math.random() * 5) + 8),
+              label: lbCnt,
+              labelImg: lbCnt * (Math.floor(Math.random() * 5) + 8),
+              target: isHalf ? 75 : 150, reject: 0, memo: isHalf ? '오전반차 사용' : '정상 완료'
+            });
+          }
+        });
+      });
+
+      localStorage.setItem(STORAGE_LOGS_KEY, JSON.stringify(logs));
+      renderAll();
+      showToast('샘플 데이터(월차·반차 포함)가 생성되었습니다.');
+    }
+
+    function openWorkerModal() {
+      document.getElementById('workerListInput').value = workers.filter(w => w !== 'PL 관리자').join(', ');
+      document.getElementById('workerModal').classList.remove('hidden');
+      document.getElementById('workerModal').classList.add('flex');
+    }
+    function closeWorkerModal() {
+      document.getElementById('workerModal').classList.add('hidden');
+      document.getElementById('workerModal').classList.remove('flex');
+    }
+    function saveWorkerList() {
+      const raw = document.getElementById('workerListInput').value;
+      const list = raw.split(/[,\\n]+/).map(s => s.trim()).filter(Boolean);
+      list.push('PL 관리자');
+      workers = [...new Set(list)];
+      localStorage.setItem(STORAGE_WORKERS_KEY, JSON.stringify(workers));
+      initLoginScreen();
+      populateWorkerSelect();
+      renderAll();
+      closeWorkerModal();
+      showToast('작업자 명단이 저장되었습니다.');
+    }
+
+    function exportCSV() {
+      if (logs.length === 0) { alert('내보낼 데이터가 없습니다.'); return; }
+      const headers = ['일자', '작업자', '근태(월차/반차)', '수집_영상(건)', '정제(건)', '정제(장)', '가공(건)', '가공(장)', '총합계(건)', '총합계(장)', '일일목표(건)', '반려(건)', '비고'];
+      const rows = logs.map(l => [
+        l.date, `"${l.worker}"`, `"${l.attendance || '정상근무'}"`,
+        l.collect || 0,
+        l.clean || 0, l.cleanImg || 0,
+        l.label || 0, l.labelImg || 0,
+        (l.collect || 0) + (l.clean || 0) + (l.label || 0),
+        (l.cleanImg || 0) + (l.labelImg || 0),
+        l.target !== undefined ? l.target : 150, l.reject || 0,
+        `"${(l.memo || '').replace(/"/g, '""')}"`
+      ]);
+      const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = `라벨러_업무량_근태포함_${document.getElementById('filterDate').value}.csv`;
+      a.click(); URL.revokeObjectURL(url);
+    }
+
+    initLoginScreen();
+  </script>
+</body>
+</html>
