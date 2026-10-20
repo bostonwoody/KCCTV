@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>AI 데이터셋 구축 업무량 기입 시스템 (PC 서버 연동)</title>
+  <title>AI 데이터셋 구축 업무량 기입 시스템 (깃허브 연동)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet" />
@@ -37,7 +37,7 @@
     <div class="bg-white rounded-3xl max-w-sm w-full p-6 sm:p-8 space-y-6 shadow-2xl border border-slate-100">
       <div class="text-center space-y-2">
         <div class="bg-indigo-600 w-14 h-14 rounded-2xl mx-auto flex items-center justify-center shadow-lg shadow-indigo-200">
-          <i class="fa-solid fa-cloud-arrow-up text-2xl text-white"></i>
+          <i class="fa-solid fa-pen-to-square text-2xl text-white"></i>
         </div>
         <h2 class="text-2xl font-extrabold text-slate-800">업무량 기입 로그인</h2>
         <p class="text-xs text-slate-500">본인의 작업자 이름을 선택하고 로그인하세요.</p>
@@ -146,7 +146,7 @@
           <i class="fa-solid fa-chart-column"></i> 주간 누적 생산량 차트
         </button>
       </div>
-      <span class="text-xs text-indigo-600 font-semibold">👑 PC 서버 실시간 동기화 모드</span>
+      <span class="text-xs text-indigo-600 font-semibold">👑 관리자 통합 대시보드 모드</span>
     </div>
 
     <!-- 탭 1: 기입란 -->
@@ -277,7 +277,7 @@
             </div>
 
             <button type="submit" id="btnSubmitForm" class="w-full bg-indigo-600 active:bg-indigo-800 hover:bg-indigo-700 text-white font-bold py-3.5 rounded-2xl shadow-lg shadow-indigo-200 transition flex items-center justify-center gap-2 mt-2">
-              <i class="fa-solid fa-cloud-arrow-up"></i> <span id="btnSubmitText">실적 저장 및 PC 서버 전송</span>
+              <i class="fa-solid fa-check"></i> <span id="btnSubmitText">실적 저장하기</span>
             </button>
           </form>
         </section>
@@ -342,16 +342,16 @@
   </main>
 
   <script>
-    // ★ 내 PC 서버 주소 (서버를 8080 포트로 켤 경우)
-    const LOCAL_SERVER_URL = 'http://localhost:8080';
+    const STORAGE_LOGS_KEY = 'koinonia_labeler_logs_v9';
+    const STORAGE_WORKERS_KEY = 'koinonia_labeler_workers_v9';
 
     const defaultWorkers = [
       '라벨러 1 (김민수)', '라벨러 2 (이지은)', '라벨러 3 (박준형)', '라벨러 4 (최유진)',
       '라벨러 5 (정우성)', '라벨러 6 (강하늘)', '라벨러 7 (윤서연)', '라벨러 8 (한지민)', 'PL 관리자 1', 'PL 관리자 2'
     ];
 
-    let workers = defaultWorkers;
-    let logs = [];
+    let workers = JSON.parse(localStorage.getItem(STORAGE_WORKERS_KEY)) || defaultWorkers;
+    let logs = JSON.parse(localStorage.getItem(STORAGE_LOGS_KEY)) || [];
     let currentUser = null;
 
     function formatLocalDate(dateObj = new Date()) {
@@ -375,35 +375,17 @@
       setTimeout(() => toast.remove(), 2500);
     }
 
-    // ★ 내 PC 서버에서 데이터 불러오기
-    async function loadDataFromServer() {
-      try {
-        const res = await fetch(LOCAL_SERVER_URL + '/api/load');
-        const data = await res.json();
-        if (data.logs) logs = data.logs;
-        if (data.workers && data.workers.length > 0) workers = data.workers;
-        initLoginScreen();
-        if (currentUser) {
-          populateWorkerSelect();
-          onWorkerDateChange();
-          if (currentUser.includes('관리자')) renderAll();
-        }
-      } catch (err) {
-        console.log('PC 서버가 켜져 있지 않거나 로컬 모드로 동작 중입니다.');
-      }
-    }
-
-    // ★ 내 PC 서버로 데이터 저장하기
-    async function saveDataToServer() {
-      try {
-        await fetch(LOCAL_SERVER_URL + '/api/save', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ workers, logs })
-        });
-      } catch (err) {
-        alert('내 PC 서버로 저장하지 못했습니다. server.py가 켜져 있는지 확인하세요.');
-      }
+    function initLoginScreen() {
+      const select = document.getElementById('loginUserSelect');
+      if (!select) return;
+      const realWorkers = workers.filter(w => !w.includes('관리자'));
+      const admins = workers.filter(w => w.includes('관리자'));
+      
+      let options = realWorkers.map(w => `<option value="${escapeHtml(w)}">👤 ${escapeHtml(w)}</option>`);
+      admins.forEach(admin => {
+        options.push(`<option value="${escapeHtml(admin)}">👑 [관리자] ${escapeHtml(admin)}</option>`);
+      });
+      select.innerHTML = options.join('');
     }
 
     function setAttendance(status, keepExistingValues = false) {
@@ -440,16 +422,6 @@
         if (!keepExistingValues) targetInput.value = (status.includes('반차')) ? 75 : 150;
       }
       updateLiveFormSum();
-    }
-
-    function initLoginScreen() {
-      const select = document.getElementById('loginUserSelect');
-      const realWorkers = workers.filter(w => !w.includes('관리자'));
-      const options = realWorkers.map(w => `<option value="${escapeHtml(w)}">👤 ${escapeHtml(w)}</option>`);
-      workers.filter(w => w.includes('관리자')).forEach(admin => {
-        options.push(`<option value="${escapeHtml(admin)}">👑 [관리자] ${escapeHtml(admin)}</option>`);
-      });
-      select.innerHTML = options.join('');
     }
 
     function handleLogin(e) {
@@ -506,7 +478,6 @@
       currentUser = null;
       document.getElementById('loginPassword').value = '';
       document.getElementById('loginScreen').classList.remove('hidden');
-      loadDataFromServer();
     }
 
     const todayStr = formatLocalDate(new Date());
@@ -552,7 +523,7 @@
         document.getElementById('cntReject').value = existing.reject || 0;
         document.getElementById('workMemo').value = existing.memo || '';
         setAttendance(existing.attendance || '정상근무', true);
-        document.getElementById('btnSubmitText').textContent = '실적 업데이트 및 PC 저장';
+        document.getElementById('btnSubmitText').textContent = '실적 업데이트하기';
       } else {
         resetFormValues();
       }
@@ -570,7 +541,7 @@
       document.getElementById('cntReject').value = 0;
       document.getElementById('workMemo').value = '';
       setAttendance('정상근무', false);
-      document.getElementById('btnSubmitText').textContent = '실적 저장 및 PC 저장';
+      document.getElementById('btnSubmitText').textContent = '실적 저장하기';
       updateLiveFormSum();
     }
 
@@ -596,7 +567,7 @@
       }
     }
 
-    async function saveWorkload(e) {
+    function saveWorkload(e) {
       e.preventDefault();
       const date = document.getElementById('workDate').value;
       const worker = document.getElementById('workerSelect').value;
@@ -620,14 +591,12 @@
       else logs.unshift(record);
 
       logs.sort((a, b) => b.date.localeCompare(a.date));
+      localStorage.setItem(STORAGE_LOGS_KEY, JSON.stringify(logs));
 
-      // 내 PC 서버(server.py)로 즉시 전송하여 내 컴퓨터 파일에 영구 저장
-      await saveDataToServer();
+      document.getElementById('btnSubmitText').textContent = '실적 업데이트하기';
+      showToast(`${date} [${worker}] 실적이 저장되었습니다!`);
 
-      document.getElementById('btnSubmitText').textContent = '실적 업데이트 및 PC 저장';
-      showToast(`${date} [${worker}] 실적이 내 컴퓨터에 안전하게 저장되었습니다!`);
-
-      if (currentUser.includes('관리자')) {
+      if (currentUser && currentUser.includes('관리자')) {
         document.getElementById('filterDate').value = date;
         renderAll();
       }
@@ -653,12 +622,22 @@
       }
     }
 
-    async function deleteLog(id) {
+    function editLogById(logId) {
+      const rec = logs.find(l => String(l.id) === String(logId));
+      if (!rec) return;
+      switchTab('entry');
+      document.getElementById('workDate').value = rec.date;
+      document.getElementById('workerSelect').value = rec.worker;
+      onWorkerDateChange();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function deleteLog(id) {
       if (!confirm('해당 내역을 삭제하시겠습니까?')) return;
       logs = logs.filter(l => String(l.id) !== String(id));
-      await saveDataToServer();
+      localStorage.setItem(STORAGE_LOGS_KEY, JSON.stringify(logs));
       renderAll();
-      showToast('삭제 및 PC 서버에 반영되었습니다.');
+      showToast('삭제되었습니다.');
     }
 
     function getLast7Days(baseDateStr) {
@@ -699,6 +678,58 @@
       const unitStr = mode === 'cnt' ? '건' : '장';
       const grandTotal = totalCollect + totalClean + totalLabel;
       document.getElementById('weeklyTotalBadge').textContent = `주간 총 ${grandTotal.toLocaleString()}${unitStr}`;
+
+      const cPct = grandTotal > 0 ? ((totalCollect / grandTotal) * 100).toFixed(1) : '0.0';
+      const clPct = grandTotal > 0 ? ((totalClean / grandTotal) * 100).toFixed(1) : '0.0';
+      const lbPct = grandTotal > 0 ? ((totalLabel / grandTotal) * 100).toFixed(1) : '0.0';
+
+      document.getElementById('eventRatioSummary').innerHTML = `
+        <div class="bg-blue-50 p-1.5 rounded"><span class="block text-blue-600 font-bold">수집(영상)</span><strong>${mode === 'cnt' ? totalCollect + '건' : '-'}</strong><br><span class="text-slate-400">(${cPct}%)</span></div>
+        <div class="bg-amber-50 p-1.5 rounded"><span class="block text-amber-600 font-bold">정제(${unitStr})</span><strong>${totalClean.toLocaleString()}${unitStr}</strong><br><span class="text-slate-400">(${clPct}%)</span></div>
+        <div class="bg-emerald-50 p-1.5 rounded"><span class="block text-emerald-600 font-bold">가공(${unitStr})</span><strong>${totalLabel.toLocaleString()}${unitStr}</strong><br><span class="text-slate-400">(${lbPct}%)</span></div>
+      `;
+
+      if (typeof window.Chart === 'undefined') return;
+
+      const datasets = mode === 'cnt'
+        ? [
+            { label: '수집(영상 건)', data: workerCollect, backgroundColor: '#3b82f6', borderRadius: 4 },
+            { label: '정제(건)', data: workerClean, backgroundColor: '#f59e0b', borderRadius: 4 },
+            { label: '가공(건)', data: workerLabel, backgroundColor: '#10b981', borderRadius: 4 }
+          ]
+        : [
+            { label: '정제(장)', data: workerClean, backgroundColor: '#f59e0b', borderRadius: 4 },
+            { label: '가공(장)', data: workerLabel, backgroundColor: '#10b981', borderRadius: 4 }
+          ];
+
+      const ctxWorker = document.getElementById('workerWeeklyChart').getContext('2d');
+      if (workerWeeklyChartInstance) workerWeeklyChartInstance.destroy();
+      workerWeeklyChartInstance = new Chart(ctxWorker, {
+        type: 'bar',
+        data: { labels: realWorkers, datasets },
+        options: { responsive: true, maintainAspectRatio: false, scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } } }
+      });
+
+      const ctxEvent = document.getElementById('eventRatioChart').getContext('2d');
+      if (eventRatioChartInstance) eventRatioChartInstance.destroy();
+      eventRatioChartInstance = new Chart(ctxEvent, {
+        type: 'doughnut',
+        data: {
+          labels: mode === 'cnt' ? ['수집(건)', '정제(건)', '가공(건)'] : ['정제(장)', '가공(장)'],
+          datasets: [{
+            data: mode === 'cnt' ? [totalCollect || 1, totalClean || 1, totalLabel || 1] : [totalClean || 1, totalLabel || 1],
+            backgroundColor: mode === 'cnt' ? ['#3b82f6', '#f59e0b', '#10b981'] : ['#f59e0b', '#10b981']
+          }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, cutout: '62%' }
+      });
+    }
+
+    function getAttendanceBadge(att) {
+      if (att === '월차') return '<span class="text-[11px] font-bold bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">🏖️ 월차</span>';
+      if (att === '오전반차') return '<span class="text-[11px] font-bold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">🌅 오전반차</span>';
+      if (att === '오후반차') return '<span class="text-[11px] font-bold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">🌇 오후반차</span>';
+      return '<span class="text-[11px] font-medium bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">정상근무</span>';
     }
 
     function renderAll() {
@@ -759,36 +790,90 @@
         const tg = wLog ? (wLog.target !== undefined ? wLog.target : 150) : 150;
         const pct = isFullLeave ? 100 : (tg > 0 ? Math.min(100, Math.round((totCnt / tg) * 100)) : 0);
 
+        const badgeColor = isFullLeave
+          ? 'bg-purple-100 text-purple-700'
+          : (pct >= 100 ? 'bg-emerald-100 text-emerald-700' : pct > 0 ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-400');
+
         return `
-          <div class="bg-white rounded-2xl p-4 card-shadow border ${isFullLeave ? 'border-purple-200 bg-purple-50/20' : 'border-slate-100'}">
+          <div onclick="document.getElementById('workerSelect').value='${escapeHtml(w)}'; onWorkerDateChange();" class="bg-white rounded-2xl p-4 card-shadow border ${isFullLeave ? 'border-purple-200 bg-purple-50/20' : 'border-slate-100'} hover:border-indigo-400 cursor-pointer transition">
             <div class="flex justify-between items-start mb-2">
-              <h4 class="font-bold text-slate-800 text-sm">${escapeHtml(w)}</h4>
-              <span class="text-xs font-bold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600">${isFullLeave ? '휴무' : `${totCnt}건 (${pct}%)`}</span>
+              <div class="flex items-center gap-1.5">
+                <h4 class="font-bold text-slate-800 text-sm">${escapeHtml(w)}</h4>
+                ${att !== '정상근무' ? getAttendanceBadge(att) : ''}
+              </div>
+              <span class="text-xs font-bold px-2.5 py-0.5 rounded-full ${badgeColor}">
+                ${isFullLeave ? '월차 휴무' : `${totCnt} / ${tg}건 (${pct}%)`}
+              </span>
+            </div>
+            <div class="w-full bg-slate-100 h-2 rounded-full overflow-hidden mb-3">
+              <div class="${isFullLeave ? 'bg-purple-400' : 'bg-indigo-600'} h-full transition-all duration-300" style="width: ${pct}%"></div>
+            </div>
+            <div class="grid grid-cols-3 gap-2 text-center bg-slate-50 rounded-xl p-2 text-xs">
+              <div><span class="text-slate-400 block">수집(영상)</span><strong class="text-blue-600 text-sm">${c.toLocaleString()}건</strong></div>
+              <div class="border-x border-slate-200"><span class="text-slate-400 block">정제(건/장)</span><strong class="text-amber-600 text-sm">${clCnt.toLocaleString()}건</strong><span class="block text-[11px] text-amber-700 font-semibold">${clImg.toLocaleString()}장</span></div>
+              <div><span class="text-slate-400 block">가공(건/장)</span><strong class="text-emerald-600 text-sm">${lbCnt.toLocaleString()}건</strong><span class="block text-[11px] text-emerald-700 font-semibold">${lbImg.toLocaleString()}장</span></div>
             </div>
           </div>
         `;
       }).join('');
+
+      const keyword = document.getElementById('searchKeyword').value.toLowerCase();
+      const onlyDate = document.getElementById('onlySelectedDateCheck').checked;
+      const filteredLogs = logs.filter(l => {
+        if (onlyDate && l.date !== selectedDate) return false;
+        const att = (l.attendance || '정상근무').toLowerCase();
+        return l.worker.toLowerCase().includes(keyword) || l.date.includes(keyword) || att.includes(keyword) || (l.memo && l.memo.toLowerCase().includes(keyword));
+      });
+
+      const tbody = document.getElementById('logTableBody');
+      if (filteredLogs.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="10" class="text-center py-8 text-slate-400">표시할 내역이 없습니다.</td></tr>`;
+      } else {
+        tbody.innerHTML = filteredLogs.map(l => {
+          const totalCnt = (l.collect || 0) + (l.clean || 0) + (l.label || 0);
+          const totalImg = (l.cleanImg || 0) + (l.labelImg || 0);
+          const att = l.attendance || '정상근무';
+          return `
+            <tr class="hover:bg-slate-50">
+              <td class="py-2.5 px-3 font-medium whitespace-nowrap">${escapeHtml(l.date)}</td>
+              <td class="py-2.5 px-3 font-semibold text-slate-800">${escapeHtml(l.worker)}</td>
+              <td class="py-2.5 px-3 text-center whitespace-nowrap">${getAttendanceBadge(att)}</td>
+              <td class="py-2.5 px-3 text-right font-medium text-blue-600">${(l.collect || 0).toLocaleString()}건</td>
+              <td class="py-2.5 px-3 text-right font-medium text-amber-600">${(l.clean || 0).toLocaleString()}건 <span class="text-xs text-amber-700">(${(l.cleanImg || 0).toLocaleString()}장)</span></td>
+              <td class="py-2.5 px-3 text-right font-medium text-emerald-600">${(l.label || 0).toLocaleString()}건 <span class="text-xs text-emerald-700">(${(l.labelImg || 0).toLocaleString()}장)</span></td>
+              <td class="py-2.5 px-3 text-right font-bold">${totalCnt.toLocaleString()}건 / <span class="text-indigo-600">${totalImg.toLocaleString()}장</span></td>
+              <td class="py-2.5 px-3 text-right text-rose-500">${l.reject || 0}</td>
+              <td class="py-2.5 px-3 text-slate-500 truncate max-w-[140px]">${escapeHtml(l.memo || '-')}</td>
+              <td class="py-2.5 px-3 text-center whitespace-nowrap space-x-2">
+                <button type="button" onclick="editLogById('${l.id}')" class="text-indigo-500 hover:text-indigo-700"><i class="fa-solid fa-pen"></i></button>
+                <button type="button" onclick="deleteLog('${l.id}')" class="text-slate-400 hover:text-rose-600"><i class="fa-solid fa-trash-can"></i></button>
+              </td>
+            </tr>
+          `;
+        }).join('');
+      }
     }
 
     function exportCSV() {
       if (logs.length === 0) { alert('내보낼 데이터가 없습니다.'); return; }
-      const headers = ['일자', '작업자', '근태', '수집(건)', '정제(건)', '정제(장)', '가공(건)', '가공(장)', '총합(건)', '총합(장)', '목표', '반려', '비고'];
+      const headers = ['일자', '작업자', '근태(월차/반차)', '수집_영상(건)', '정제(건)', '정제(장)', '가공(건)', '가공(장)', '총합계(건)', '총합계(장)', '일일목표(건)', '반려(건)', '비고'];
       const rows = logs.map(l => [
         l.date, `"${l.worker}"`, `"${l.attendance || '정상근무'}"`,
         l.collect || 0, l.clean || 0, l.cleanImg || 0, l.label || 0, l.labelImg || 0,
-        (l.collect || 0) + (l.clean || 0) + (l.label || 0), (l.cleanImg || 0) + (l.labelImg || 0),
-        l.target ?? 150, l.reject || 0, `"${(l.memo || '').replace(/"/g, '""')}"`
+        (l.collect || 0) + (l.clean || 0) + (l.label || 0),
+        (l.cleanImg || 0) + (l.labelImg || 0),
+        l.target !== undefined ? l.target : 150, l.reject || 0,
+        `"${(l.memo || '').replace(/"/g, '""')}"`
       ]);
       const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href = url; a.download = `업무량_백업_${formatLocalDate()}.csv`;
+      const a = document.createElement('a'); a.href = url; a.download = `라벨러_업무량_${formatLocalDate()}.csv`;
       a.click(); URL.revokeObjectURL(url);
     }
 
-    // 첫 시작 시 로컬 PC 서버에서 데이터 로드
-    loadDataFromServer();
-    setInterval(loadDataFromServer, 10000); // 10초마다 자동 동기화
+    // 초기 실행
+    initLoginScreen();
   </script>
 </body>
 </html>
