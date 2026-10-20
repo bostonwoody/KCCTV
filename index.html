@@ -341,7 +341,7 @@
 
   </main>
 
-  <!-- ★ 인원관리 모달창 팝업 HTML (이 부분이 추가되어 버튼이 정상 작동합니다) -->
+  <!-- 인원관리 모달창 -->
   <div id="workerModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50 p-4">
     <div class="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
       <div class="flex justify-between items-center border-b pb-3">
@@ -656,7 +656,6 @@
       showToast('삭제되었습니다.');
     }
 
-    // ★ 인원관리 모달창 열기 및 닫기 함수
     function openWorkerModal() {
       const realWorkers = workers.filter(w => !w.includes('관리자'));
       document.getElementById('workerListInput').value = realWorkers.join(', ');
