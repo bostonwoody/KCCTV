@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>AI 데이터셋 구축 업무량 기입 시스템 (깃허브 연동)</title>
+  <title>AI 데이터셋 구축 업무량 기입 시스템</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet" />
@@ -341,9 +341,25 @@
 
   </main>
 
+  <!-- ★ 인원관리 모달창 팝업 HTML (이 부분이 추가되어 버튼이 정상 작동합니다) -->
+  <div id="workerModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
+      <div class="flex justify-between items-center border-b pb-3">
+        <h4 class="font-bold text-base">작업자(라벨러) 명단 관리</h4>
+        <button type="button" onclick="closeWorkerModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+      <p class="text-xs text-slate-500">팀원 이름을 쉼표(,) 또는 줄바꿈으로 구분하여 입력하세요.</p>
+      <textarea id="workerListInput" rows="5" class="w-full border border-slate-300 rounded-xl p-3 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"></textarea>
+      <div class="flex justify-end gap-2">
+        <button type="button" onclick="closeWorkerModal()" class="px-4 py-2 rounded-lg text-sm bg-slate-100">취소</button>
+        <button type="button" onclick="saveWorkerList()" class="px-4 py-2 rounded-lg text-sm bg-indigo-600 text-white font-semibold">저장하기</button>
+      </div>
+    </div>
+  </div>
+
   <script>
-    const STORAGE_LOGS_KEY = 'koinonia_labeler_logs_v9';
-    const STORAGE_WORKERS_KEY = 'koinonia_labeler_workers_v9';
+    const STORAGE_LOGS_KEY = 'koinonia_labeler_logs_v10';
+    const STORAGE_WORKERS_KEY = 'koinonia_labeler_workers_v10';
 
     const defaultWorkers = [
       '라벨러 1 (김민수)', '라벨러 2 (이지은)', '라벨러 3 (박준형)', '라벨러 4 (최유진)',
@@ -638,6 +654,34 @@
       localStorage.setItem(STORAGE_LOGS_KEY, JSON.stringify(logs));
       renderAll();
       showToast('삭제되었습니다.');
+    }
+
+    // ★ 인원관리 모달창 열기 및 닫기 함수
+    function openWorkerModal() {
+      const realWorkers = workers.filter(w => !w.includes('관리자'));
+      document.getElementById('workerListInput').value = realWorkers.join(', ');
+      const modal = document.getElementById('workerModal');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+    }
+
+    function closeWorkerModal() {
+      const modal = document.getElementById('workerModal');
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+
+    function saveWorkerList() {
+      const raw = document.getElementById('workerListInput').value;
+      const list = raw.split(/[,\\n]+/).map(s => s.trim()).filter(Boolean);
+      const admins = workers.filter(w => w.includes('관리자'));
+      workers = [...new Set([...list, ...admins])];
+      localStorage.setItem(STORAGE_WORKERS_KEY, JSON.stringify(workers));
+      initLoginScreen();
+      populateWorkerSelect();
+      if (currentUser && currentUser.includes('관리자')) renderAll();
+      closeWorkerModal();
+      showToast('작업자 명단이 저장되었습니다.');
     }
 
     function getLast7Days(baseDateStr) {
